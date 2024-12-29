@@ -2,7 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const fn = require("../src/controllers/transaction");
+const fn = require("../../src/controllers/cashier/transaction");
 
 router.post("/"        , fn.create_transaction);
 

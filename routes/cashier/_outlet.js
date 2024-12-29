@@ -2,7 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const fn = require("../src/controllers/outlet");
+const fn = require("../../src/controllers/cashier/outlet");
 
 router.post("/banner"  , fn.set_outlet_banner);
 router.post("/info"    , fn.set_outlet_info);

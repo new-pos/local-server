@@ -1,6 +1,6 @@
 "use strict"
 
-const sdk = require("../libraries");
+const sdk = require("../../libraries");
 
 async function sign_in(request, response) {
   try {

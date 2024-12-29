@@ -2,7 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const fn = require("../src/controllers/product");
+const fn = require("../../src/controllers/cashier/product");
 
 router.get("/group"         , fn.get_product_group);
 router.get("/category"      , fn.get_product_category);

@@ -2,7 +2,7 @@
 
 const express = require("express");
 const router = express.Router();
-const fn = require("../src/controllers/cashier");
+const fn = require("../../src/controllers/cashier/cashier");
 
 router.get("/"         , fn.get_list_cashier);
 

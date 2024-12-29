@@ -12,6 +12,14 @@ const routes       = require('./routes/index');
 const http         = require("http").Server(app);
 const io           = require("socket.io")(http, { cors: { origin: "*" } });
 const port         = process.env.PORT || 3100;
+const https = require('https');
+const fs = require('fs');
+
+// Load SSL certificates
+const options = {
+  key: fs.readFileSync('localhost+2-key.pem'),
+  cert: fs.readFileSync('localhost+2.pem'),
+};
 
 mongoose.connect(
   "mongodb://localhost:27017/new-pos",
@@ -82,9 +90,13 @@ io.on("connection", (socket) => {
   });
 });
 
-http.listen(port, () => {
+// http.listen(port, () => {
+//   console.clear();
+//   console.log(`Socket.IO server running at http://localhost:${port}`);
+// });
+https.createServer(options, app).listen(port, '0.0.0.0', () => {
   console.clear();
-  console.log(`Socket.IO server running at http://localhost:${port}`);
+  console.log(`Server running at https://localhost:${port}/`);
 });
 
 // module.exports = app;
