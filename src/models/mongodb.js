@@ -10,6 +10,8 @@ const product_category = require("./structures/product-category");
 const product_group = require("./structures/product-group");
 const product_sub_category = require("./structures/product-sub-category");
 const product = require("./structures/product");
+const shift = require("./structures/shift");
+const shift_running = require("./structures/shift-running");
 
 module.exports = {
   cashier,
@@ -22,4 +24,6 @@ module.exports = {
   product_group,
   product_sub_category,
   product,
+  shift,
+  shift_running,
 };
