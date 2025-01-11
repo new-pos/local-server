@@ -27,11 +27,13 @@ async function set_outlet_banner(request, response) {
 
 async function set_outlet_info(request, response) {
   try {
+    console.log("request.body", request.body);
+    
     await sdk.db.outlet.deleteMany();
 
     request.body.outlet_id = request.body.id;
 
-    await sdk.db.outlet.insertMany([request.body]);
+    await sdk.db.outlet.insertMany(request.body);
 
     return response.status(200).json({
       message: "Success set_outlet_info",

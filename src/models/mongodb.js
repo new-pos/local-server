@@ -12,6 +12,8 @@ const product_sub_category = require("./structures/product-sub-category");
 const product = require("./structures/product");
 const shift = require("./structures/shift");
 const shift_running = require("./structures/shift-running");
+const station = require("./structures/station");
+const transaction = require("./structures/transaction");
 
 module.exports = {
   cashier,
@@ -26,4 +28,6 @@ module.exports = {
   product,
   shift,
   shift_running,
+  station,
+  transaction,
 };

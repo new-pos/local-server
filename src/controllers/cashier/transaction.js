@@ -1,17 +1,17 @@
 "use strict"
 
-const axios = require('axios');
+const axios          = require('axios');
 const ThermalPrinter = require('node-thermal-printer').printer;
-const PrinterTypes = require('node-thermal-printer').types;
-const path = require('path');
-const Queue = require('better-queue');
-const sdk = require("../../libraries");
-const fs = require('fs');
-const sharp = require('sharp');
+const PrinterTypes   = require('node-thermal-printer').types;
+const path           = require('path');
+const Queue          = require('better-queue');
+const fs             = require('fs');
+const sharp          = require('sharp');
+const sdk            = require("../../libraries");
 
 const failedTasks = [];
 
-const printerQueue = new Queue(async function (task, cb) {
+const cashier_queue = new Queue(async function (task, cb) {
   let retries = 0;
   const maxRetries = 10000;
   const retryDelay = 5000;
@@ -31,11 +31,11 @@ const printerQueue = new Queue(async function (task, cb) {
       // Try to print any failed tasks first
       while (failedTasks.length > 0) {
         const failedTask = failedTasks.shift();
-        await printReceipt(printer, failedTask.data);
+        await print_receipt(printer, failedTask.data);
       }
 
       // Print current task
-      await printReceipt(printer, task.data);
+      await print_receipt(printer, task.data);
 
       console.log('Print success');
       cb(null, { success: true });
@@ -54,103 +54,62 @@ const printerQueue = new Queue(async function (task, cb) {
   }
 });
 
-async function printReceipt(printer, data) {
-  try {
-    // Print receipt
-    printer.clear();
-    // Header
-    printer.alignCenter();
-    await printer.printImage(path.join(__dirname, data.logo), { align: 'center' });
-    printer.println();
-    
-    printer.bold(true);
-    printer.println(data.storeName);
-    printer.bold(false);
-    printer.println();
-    
-    printer.println('Phone: ' + data.phone);
-    printer.drawLine();
-    
-    // Order details
-    printer.alignLeft();
-    printer.println(`Invoice    : ${data.invoice}`);
-    printer.println(`Order Time : ${data.orderTime}`);
-    printer.println(`Table      : ${data.table}`);
-    printer.println(`Type       : ${data.type}`);
-    printer.println(`Cashier    : ${data.cashier}`);
-    
-    printer.drawLine();
-    
-    // Items
-    data.items.forEach(item => {
-      printer.tableCustom([
-        { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
-        { text: item.price.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-      ]);
-      
-      // Options
-      item.options.forEach(opt => {
-        printer.tableCustom([
-          { text: `    ${opt.name}`, align: 'LEFT', width: 0.6 },
-          { text: opt.price.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-        ]);
+const station_queue = new Queue(async function (task, cb) {
+  let retries = 0;
+  const maxRetries = 10000;
+  const retryDelay = 5000;
+
+  console.log("Station queue", task.printer_interface);
+
+  while (retries < maxRetries) {
+    try {
+      const printer = new ThermalPrinter({
+        type                    : PrinterTypes.EPSON,
+        interface               : task.printer_interface,
+        options                 : { timeout: 1000 },
+        width                   : 46,
+        removeSpecialCharacters : false,
+        lineCharacter           : "-",
+        encoding                : "UTF8"
       });
-    });
-    
-    printer.drawLine();
-    
-    // Totals
-    printer.println(`Total Items: ${data.totalItems}`);
-    printer.drawLine();
-    
-    printer.tableCustom([
-      { text: 'Subtotal:', align: 'LEFT', width: 0.6 },
-      { text: data.subtotal.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-    ]);
-    
-    printer.tableCustom([
-      { text: 'Total:', align: 'LEFT', width: 0.6 },
-      { text: data.total.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-    ]);
-    
-    printer.drawLine();
-    
-    for (const payment of data.payment) {
-      printer.tableCustom([
-        { text: payment.method, align: 'LEFT', width: 0.6 },
-        { text: `IDR ${payment.amount.toLocaleString().replace(/,/g, ".")}`, align: 'RIGHT', width: 0.4 }
-      ]);
-    }
 
-    printer.newLine();
+      // Try to print any failed tasks first
+      while (failedTasks.length > 0) {
+        const failedTask = failedTasks.shift();
+        await print_station(printer, failedTask.data);
+      }
 
-    // Footer
-    printer.alignCenter();
-    for (const footer of data.footers) {
-      printer.println(footer.text);
+      // Print current task
+      await print_station(printer, task.data);
+
+      console.log('Print success');
+      cb(null, { success: true });
+      return;
+    } catch (error) {
+      retries++;
+      console.log(`Print attempt ${retries} failed:`, error);
+      if (retries < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        // Store failed task for later retry
+        failedTasks.push(task);
+        cb(error);
+      }
     }
-    
-    printer.cut();
-    await printer.execute();
-    
-    return true;
-  } catch (error) {
-    console.error('Error printing receipt:', error);
-    throw error;
   }
-}
+});
 
 async function create_transaction(request, response) {
   try {
     console.log("create_transaction", JSON.stringify(request.body, null, 2));
 
-    const data = request.body;
+    await sdk.db.transaction.create(request.body);
 
     const outlet = await sdk.db.outlet.findOne({});
     
     // If outlet is a Mongoose document, try accessing the raw object
     const outletObj = outlet.toObject ? outlet.toObject() : outlet;
-    console.log("Outlet as plain object image:", outletObj.image);
+    console.log("Outlet as plain object image:", outletObj);
 
     // Download image
     const outlet_image = await axios.get(outletObj.image, { responseType: 'arraybuffer' });
@@ -175,22 +134,13 @@ async function create_transaction(request, response) {
 
     // Add print job to queue
     await new Promise((resolve, reject) => {
-      printerQueue.push({
+      cashier_queue.push({
         data: {
-          ...data,
+          ...request.body,
           logo: '../../assets/outlet-logo.png',
-          footers: [
-            {
-              text: 'Thank you for your purchase!',
-              align: 'center'
-            },
-            {
-              text: 'Please come again',
-              align: 'center'
-            },
-          ],
+          footers: outletObj.config.footer_content,
         },
-        printer_interface: 'tcp://192.168.100.168:9100'
+        printer_interface: outletObj.config.printer,
       }, (error, result) => {
         if (error) reject(error);
         else resolve(result);
@@ -210,6 +160,275 @@ async function create_transaction(request, response) {
   }
 }
 
+async function print_receipt(printer, data) {
+  try {
+    // Print receipt
+    printer.clear();
+    // Header
+    printer.alignCenter();
+    await printer.printImage(path.join(__dirname, data.logo), { align: 'center' });
+    printer.println();
+    
+    printer.bold(true);
+    printer.println(data.store_name);
+    printer.bold(false);
+    printer.println();
+    
+    printer.println(data.outlet_address);
+    
+    printer.println('Phone: ' + data.outlet_phone);
+    printer.drawLine();
+    
+    // Order details
+    printer.alignLeft();
+    printer.println(`Invoice    : ${data.invoice_id}`);
+    printer.println(`Order No   : ${data.order_number}`);
+    printer.println(`Order Time : ${new Date(data.created_at).toLocaleString('en-GB', {
+      day   : '2-digit',
+      month : 'short',
+      year  : 'numeric',
+      hour  : '2-digit',
+      minute: '2-digit',
+      hour12: false
+    })}`);
+    
+    if (data.table_name) {
+      printer.println(`Table      : ${data.table_group_name} - ${data.table_name}`);
+    }
+    
+    printer.println(`Type       : ${data.sales_type_name}`);
+    printer.println(`Cashier    : ${data.cashier_name}`);
+    
+    printer.drawLine();
+    
+    // Items
+    data.transaction_items.forEach((item, item_index) => {
+      printer.tableCustom([
+        { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
+        { text: (+item.option.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+      ]);
+      
+      // Addons
+      item.addon.forEach(addon => {
+        addon.list.forEach(opt => {
+          printer.tableCustom([
+            { text: `    ${addon.name} - ${opt.name}`, align: 'LEFT', width: 0.6 },
+            { text: (+opt.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+          ]);
+        });
+      });
+
+      if (item_index < data.transaction_items.length - 1) {
+        printer.newLine();
+      }
+    });
+    
+    printer.drawLine();
+    
+    // Totals
+    printer.println(`Total Items: ${data?.total_items || 0}`);
+    printer.drawLine();
+    
+    printer.tableCustom([
+      { text: 'Subtotal:', align: 'LEFT', width: 0.6 },
+      { text: data.subtotal.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+    ]);
+    
+    printer.tableCustom([
+      { text: 'Total:', align: 'LEFT', width: 0.6 },
+      { text: data.grand_total.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+    ]);
+    
+    printer.drawLine();
+    
+    for (const payment of data.payment_method) {
+      printer.tableCustom([
+        { text: payment.name, align: 'LEFT', width: 0.6 },
+        { text: `IDR ${payment.amount.toLocaleString().replace(/,/g, ".")}`, align: 'RIGHT', width: 0.4 }
+      ]);
+    }
+
+    printer.newLine();
+
+    // Footer
+    printer.alignCenter();
+    for (const footer_text of data.footers) {
+      printer.println(footer_text);
+    }
+    
+    printer.cut();
+    await printer.execute();
+
+    print_stations(data);
+    
+    return true;
+  } catch (error) {
+    console.error('Error printing receipt:', error);
+    throw error;
+  }
+}
+
+async function print_stations(data) {
+  try {
+    const stations = await sdk.db.station.find({
+      printer: { $ne: null }  // Only get stations where printer field is not null
+    });
+
+    for (let station of stations) {
+      station = station.toObject();
+
+      console.log("station : ", station);
+
+      const items = data.transaction_items.filter(item => item.option.pricing.station_id === station.station_id);
+
+      if (items.length > 0) {
+        await new Promise((resolve, reject) => {
+          station_queue.push({
+            data: {
+            station_name      : station.name,
+            invoice_id        : data.invoice_id,
+            sales_type_name   : data.sales_type_name,
+            transaction_items : items,
+            order_number      : data.order_number,
+            created_at        : data.created_at,
+          },
+          printer_interface: station.printer,
+        }, (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          });
+        });
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.log("Error print_stations", error);
+    return false;
+  }
+}
+
+async function print_station(printer, data) {
+  try {
+    // Print receipt
+    printer.clear();
+    // Header
+    printer.alignCenter();
+    printer.bold(true);
+    printer.println(data.station_name);
+    printer.bold(false);
+    printer.alignLeft();
+    printer.drawLine();
+    printer.println(`Invoice    : ${data.invoice_id}`);
+    printer.println(`Order No   : ${data.order_number}`);
+    printer.println(`Order Time : ${new Date(data.created_at).toLocaleString('en-GB', {
+      day   : '2-digit',
+      month : 'short',
+      year  : 'numeric',
+      hour  : '2-digit',
+      minute: '2-digit',
+      hour12: false
+    })}`);
+    printer.println(`Type       : ${data.sales_type_name}`);
+    printer.drawLine();
+
+    for (const item of data.transaction_items) {
+      printer.println(`${item.qty} x ${item.name}`);
+
+      // Addons
+      item.addon.forEach(addon => {
+        addon.list.forEach(opt => {
+          printer.println(`    ${addon.name} - ${opt.name}`);
+        });
+      });
+    }
+
+    printer.cut();
+    await printer.execute();
+    
+    return true;
+  } catch (error) {
+    console.log("Error print_station", error);
+    return false;
+  }
+}
+
+async function get_order_number(request, response) {
+  try {
+    // Get today's start and end dates in local timezone
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Log the query parameters for debugging
+    console.log("Query date range:", {
+      start: today.toISOString(),
+      end: tomorrow.toISOString()
+    });
+
+    // Count transactions for today
+    const todayCount = await sdk.db.transaction.countDocuments({
+      created_at: {
+        $gte: today.toISOString(),
+        $lt: tomorrow.toISOString()
+      }
+    });
+
+    console.log("Today's transaction count:", todayCount);
+    const formatted_number = String(todayCount + 1).padStart(6, '0');
+
+    return response.status(200).json({
+      message: "Success get_order_number",
+      result: formatted_number,
+    });
+  } catch (error) {
+    console.log("Error get_order_number", error);
+    return response.status(500).json({
+      message: "Error get_order_number",
+      error: error.message
+    });
+  }
+}
+
+async function get_history_transaction(request, response) {
+  try {
+    // Get today's start and end dates in local timezone
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Log the query parameters for debugging
+    console.log("Query date range:", {
+      start: today.toISOString(),
+      end: tomorrow.toISOString()
+    });
+
+    const transactions = await sdk.db.transaction.find({
+      created_at: {
+        $gte: today.toISOString(),
+        $lt: tomorrow.toISOString()
+      }
+    });
+
+    console.log("Transactions:", transactions);
+
+    return response.status(200).json({
+      message : "Success get_history_transaction",
+      result  : transactions,
+    });
+  } catch (error) {
+    console.log(error);
+    return response.status(500).json({
+      message : "Error get_history_transaction",
+      error   : error.message
+    });
+  }
+}
+
 module.exports = {
   create_transaction,
+  get_order_number,
+  get_history_transaction,
 };

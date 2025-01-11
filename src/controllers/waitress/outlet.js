@@ -110,6 +110,19 @@ async function list_product(request, response) {
   }
 }
 
+async function sales_type(request, response) {
+  try {
+    const sales_type = await sdk.db.sales_type.findOne({ dine_in: 1 }, {});
+
+    return response.json({
+      status: true,
+      data  : sales_type || null,
+    });
+  } catch (error) {
+    console.log("[sales_type].error", error);
+  }
+}
+
 module.exports = {
   outlet_info,
   table,
@@ -117,4 +130,5 @@ module.exports = {
   product_category,
   product_sub_category,
   list_product,
+  sales_type,
 };
