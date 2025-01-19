@@ -252,11 +252,14 @@ async function print_receipt(printer, data) {
 
     // Footer
     printer.alignCenter();
+
     for (const footer_text of data.footers) {
       printer.println(footer_text);
     }
     
     printer.cut();
+
+    await printer.openCashDrawer();
     await printer.execute();
 
     print_stations(data);
@@ -271,7 +274,7 @@ async function print_receipt(printer, data) {
 async function print_stations(data) {
   try {
     const stations = await sdk.db.station.find({
-      printer: { $ne: null }  // Only get stations where printer field is not null
+      printer_id: { $ne: null }  // Only get stations where printer field is not null
     });
 
     for (let station of stations) {
@@ -282,6 +285,8 @@ async function print_stations(data) {
       const items = data.transaction_items.filter(item => item.option.pricing.station_id === station.station_id);
 
       if (items.length > 0) {
+        const [printer_interface] = station.printers.filter(printer => printer.id === station.printer_id);
+
         await new Promise((resolve, reject) => {
           station_queue.push({
             data: {
@@ -292,7 +297,7 @@ async function print_stations(data) {
             order_number      : data.order_number,
             created_at        : data.created_at,
           },
-          printer_interface: station.printer,
+          printer_interface: printer_interface.ip_address,
         }, (error, result) => {
             if (error) reject(error);
             else resolve(result);
@@ -310,6 +315,8 @@ async function print_stations(data) {
 
 async function print_station(printer, data) {
   try {
+    console.log("udah sampe sini?", printer);
+    
     // Print receipt
     printer.clear();
     // Header
@@ -367,13 +374,23 @@ async function get_order_number(request, response) {
       end: tomorrow.toISOString()
     });
 
-    // Count transactions for today
-    const todayCount = await sdk.db.transaction.countDocuments({
+    // Count open_bill for today
+    const open_bill_count = await sdk.db.open_bill.countDocuments({
       created_at: {
         $gte: today.toISOString(),
         $lt: tomorrow.toISOString()
       }
     });
+
+    // Count transaction for today
+    const transaction_count = await sdk.db.transaction.countDocuments({
+      created_at: {
+        $gte: today.toISOString(),
+        $lt: tomorrow.toISOString()
+      }
+    });
+
+    const todayCount = open_bill_count + transaction_count;
 
     console.log("Today's transaction count:", todayCount);
     const formatted_number = String(todayCount + 1).padStart(6, '0');

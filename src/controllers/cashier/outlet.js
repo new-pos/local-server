@@ -96,12 +96,36 @@ async function set_outlet_sales_type(request, response) {
 
 async function set_outlet_table(request, response) {
   try {
+    const tables = await sdk.db.table.find({
+      "tables.is_occupied": true  // Only get stations where printer field is not null
+    });
+    const list_occupied_tables = [];
+    
+    for (let table of tables) {
+      table = table.toObject();
+
+      table.tables.forEach((item) => {
+        if (item.is_occupied) {
+          list_occupied_tables.push(item.id);
+        }
+      });
+    }
+
+    let _tables = request.body.map((item) => ({
+      ...item,
+      tables: item.tables.map((table) => ({
+        ...table,
+        is_occupied: list_occupied_tables.includes(table.id) ? true : false,
+        reference_id: null,
+      }))
+    }));
+
     await sdk.db.table.deleteMany();
 
-    if (request.body && request.body.length > 0) {
-      request.body = request.body.map((item) => ({ ...item, table_id: item.id }));
+    if (_tables && _tables.length > 0) {
+      _tables = _tables.map((item) => ({ ...item, table_id: item.id }));
 
-      await sdk.db.table.insertMany(request.body);
+      await sdk.db.table.insertMany(_tables);
     }
 
     return response.status(200).json({

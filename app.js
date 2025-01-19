@@ -9,11 +9,9 @@ const logger       = require('morgan');
 const mongoose     = require('mongoose');
 const app          = express();
 const routes       = require('./routes/index');
-const http         = require("http").Server(app);
-const io           = require("socket.io")(http, { cors: { origin: "*" } });
+const https        = require('https');
+const fs           = require('fs');
 const port         = process.env.PORT || 3100;
-const https = require('https');
-const fs = require('fs');
 
 // Load SSL certificates
 const options = {
@@ -67,6 +65,17 @@ app.use((err, req, res, next) => {
   res.render('error');
 });
 
+// Buat HTTPS server terlebih dahulu
+const httpsServer = https.createServer(options, app);
+
+// Kemudian inisialisasi Socket.IO dengan HTTPS server
+const io = require("socket.io")(httpsServer, { 
+  cors: { 
+    origin: "*",
+    methods: ["GET", "POST"]
+  } 
+});
+
 io.on("connection", (socket) => {
   console.log("join new client", socket);
 
@@ -94,7 +103,7 @@ io.on("connection", (socket) => {
 //   console.clear();
 //   console.log(`Socket.IO server running at http://localhost:${port}`);
 // });
-https.createServer(options, app).listen(port, '0.0.0.0', () => {
+httpsServer.listen(port, '0.0.0.0', () => {
   console.clear();
   console.log(`Server running at https://localhost:${port}/`);
 });

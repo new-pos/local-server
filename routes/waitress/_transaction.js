@@ -6,6 +6,7 @@ const fn = require("../../src/controllers/waitress/transaction");
 
 router.get("/history"         , fn.history_transaction);
 router.get("/notification"    , fn.waitress_notification);
+router.get("/order-number"    , fn.get_order_number);
 
 router.post("/create"         , fn.create_transaction);
 router.post("/update"         , fn.update_transaction);
