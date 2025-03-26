@@ -143,7 +143,7 @@ async function set_outlet_table(request, response) {
 
 async function get_outlet_table(request, response) {
   try {
-    const table = await sdk.db.table.find({}, { table_id: 1, name: 1, tables: 1 });
+    const table = await sdk.db.table.find({});
 
     return response.status(200).json({
       message: "Success get_list_cashier",
@@ -231,6 +231,49 @@ async function get_outlet_banner(request, response) {
   }
 }
 
+async function set_outlet_voucher(request, response) {
+  try {
+    await sdk.db.voucher.deleteMany();
+
+    if (request.body && request.body.length > 0) {
+      request.body = request.body.map((item) => ({ ...item, voucher_id: item.id }));
+
+      await sdk.db.voucher.insertMany(request.body);
+    }
+
+    return response.status(200).json({
+      message: "Success set_outlet_voucher",
+    });
+  } catch (error) {
+    console.log("Error set_outlet_voucher", error);
+
+    return response.status(500).json({
+      message: "Error set_outlet_voucher",
+      error: error,
+    });
+  }
+}
+
+async function get_outlet_voucher(request, response) {
+  try {
+    const voucher = await sdk.db.voucher.find({}, {});
+
+    return response.status(200).json({
+      message: "Success get_outlet_voucher",
+      result : voucher,
+    });
+  } catch (error) {
+    console.log("Error get_outlet_voucher", error);
+
+    return response.status(500).json({
+      message: "Error get_outlet_voucher",
+      error: error,
+    });
+  }
+}
+
+
+
 module.exports = {
   set_outlet_banner,
   set_outlet_info,
@@ -242,4 +285,6 @@ module.exports = {
   get_outlet_payment,
   get_outlet_info,
   get_outlet_banner,
+  set_outlet_voucher,
+  get_outlet_voucher,
 };

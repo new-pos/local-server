@@ -102,8 +102,55 @@ const station_queue = new Queue(async function (task, cb) {
 async function create_transaction(request, response) {
   try {
     console.log("create_transaction", JSON.stringify(request.body, null, 2));
+        // Get today's start and end dates in local timezone
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    await sdk.db.open_bill.create(request.body);
+    // Log the query parameters for debugging
+    console.log("Query date range:", {
+      start: today.toISOString(),
+      end: tomorrow.toISOString()
+    });
+
+    // Count open_bill for today
+    const open_bill_count = await sdk.db.open_bill.countDocuments({
+      created_at: {
+        $gte: today.toISOString(),
+        $lt: tomorrow.toISOString()
+      }
+    });
+
+    // Count transaction for today
+    const transaction_count = await sdk.db.transaction.countDocuments({
+      created_at: {
+        $gte: today.toISOString(),
+        $lt: tomorrow.toISOString()
+      }
+    });
+
+    const todayCount = open_bill_count + transaction_count;
+
+    console.log("Today's transaction count:", todayCount);
+    const formatted_number = String(todayCount + 1).padStart(6, '0');
+
+    sdk.db.notification.insertMany({
+      ...request.body,
+      order_number: formatted_number,
+      created_by: "waitress",
+      status: "accepted",
+    });
+
+    console.log("sampe sini kah?");
+    
+
+    await sdk.db.open_bill.create({
+      ...request.body,
+      order_number: formatted_number,
+      created_by: "waitress",
+      status: "accepted",
+    });
 
     const outlet = await sdk.db.outlet.findOne({});
 
@@ -145,21 +192,22 @@ async function create_transaction(request, response) {
     console.log("Resized image saved to:", imagePath);
 
     // Add print job to queue
-    // await new Promise((resolve, reject) => {
-    //   cashier_queue.push({
-    //     data: {
-    //       ...request.body,
-    //       logo: '../../assets/outlet-logo.png',
-    //       footers: outletObj.config.footer_content,
-    //     },
-    //     printer_interface: outletObj.config.printer,
-    //   }, (error, result) => {
-    //     if (error) reject(error);
-    //     else resolve(result);
-    //   });
-    // });
+    await new Promise((resolve, reject) => {
+      cashier_queue.push({
+        data: {
+          ...request.body,
+          is_open_bill: true,
+          logo: '../../assets/outlet-logo.png',
+          footers: outletObj.config.footer_content,
+        },
+        printer_interface: outletObj.config.printer,
+      }, (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
+    });
 
-    print_stations(request.body);
+    // print_stations(request.body);
 
     return response.status(200).json({
       message: "Success create_transaction",
@@ -176,6 +224,8 @@ async function create_transaction(request, response) {
 
 async function print_receipt(printer, data) {
   try {
+    console.log("print_receipt", JSON.stringify(data, null, 2));
+    
     // Print receipt
     printer.clear();
     // Header
@@ -217,20 +267,46 @@ async function print_receipt(printer, data) {
     
     // Items
     data.transaction_items.forEach((item, item_index) => {
-      printer.tableCustom([
-        { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
-        { text: (+item.option.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-      ]);
-      
-      // Addons
-      item.addon.forEach(addon => {
-        addon.list.forEach(opt => {
-          printer.tableCustom([
-            { text: `    ${addon.name} - ${opt.name}`, align: 'LEFT', width: 0.6 },
-            { text: (+opt.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-          ]);
+      if (+item.option.pricing.discount) {
+        console.log("kesini kan, karena ada discount");
+        
+        printer.tableCustom([
+          { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
+          { text: (+item.option.pricing.final_price_per_item).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+        ]);
+        
+        // Addons
+        item.addon.forEach(addon => {
+          addon.list.forEach(opt => {
+            printer.tableCustom([
+              { text: `    ${addon.name} - ${opt.name}`, align: 'LEFT', width: 0.6 },
+              { text: (+opt.pricing.final_price_per_item).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+            ]);
+          });
         });
-      });
+
+        printer.tableCustom([
+          { text: `* ${item.option.pricing.discount_name}`, align: 'LEFT', width: 0.6 },
+          { text: "", align: 'RIGHT', width: 0.4 }
+        ]);
+      } else {
+        console.log("kesini kan, karena tidak ada discount", item);
+        
+        printer.tableCustom([
+          { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
+          { text: (+item.option.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+        ]);
+        
+        // Addons
+        item.addon.forEach(addon => {
+          addon.list.forEach(opt => {
+            printer.tableCustom([
+              { text: `    ${addon.name} - ${opt.name}`, align: 'LEFT', width: 0.6 },
+              { text: (+opt.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+            ]);
+          });
+        });
+      }
 
       if (item_index < data.transaction_items.length - 1) {
         printer.newLine();
@@ -245,8 +321,15 @@ async function print_receipt(printer, data) {
     
     printer.tableCustom([
       { text: 'Subtotal:', align: 'LEFT', width: 0.6 },
-      { text: data.subtotal.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+      { text: data.subtotal_without_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
     ]);
+    
+    if (data.total_product_discount) {
+      printer.tableCustom([
+        { text: 'Product Discount:', align: 'LEFT', width: 0.6 },
+        { text: data.total_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+      ]);
+    }
     
     printer.tableCustom([
       { text: 'Total:', align: 'LEFT', width: 0.6 },
@@ -276,7 +359,9 @@ async function print_receipt(printer, data) {
     await printer.openCashDrawer();
     await printer.execute();
 
-    print_stations(data);
+    // if (!is_open_bill) {
+    //   print_stations(data);
+    // }
     
     return true;
   } catch (error) {

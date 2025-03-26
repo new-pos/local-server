@@ -1,5 +1,5 @@
 {
-  "port": 3100,
+  "port": 4002,
   "mode": "development",
   "session": {
     "key"    : "",

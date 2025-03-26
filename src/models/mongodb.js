@@ -15,6 +15,9 @@ const shift_running = require("./structures/shift-running");
 const station = require("./structures/station");
 const transaction = require("./structures/transaction");
 const open_bill = require("./structures/open-bill");
+const discount = require("./structures/discount");
+const voucher = require("./structures/voucher");
+const notification = require("./structures/notification");
 
 module.exports = {
   cashier,
@@ -32,4 +35,7 @@ module.exports = {
   station,
   transaction,
   open_bill,
+  discount,
+  voucher,
+  notification,
 };

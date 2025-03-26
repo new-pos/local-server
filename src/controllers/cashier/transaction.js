@@ -16,6 +16,8 @@ const cashier_queue = new Queue(async function (task, cb) {
   const maxRetries = 10000;
   const retryDelay = 5000;
 
+  console.log("cashier_queue");
+
   while (retries < maxRetries) {
     try {
       const printer = new ThermalPrinter({
@@ -31,11 +33,11 @@ const cashier_queue = new Queue(async function (task, cb) {
       // Try to print any failed tasks first
       while (failedTasks.length > 0) {
         const failedTask = failedTasks.shift();
-        await print_receipt(printer, failedTask.data);
+        await print_receipt(printer, failedTask.data, failedTask.is_open_bill);
       }
 
       // Print current task
-      await print_receipt(printer, task.data);
+      await print_receipt(printer, task.data, task.is_open_bill);
 
       console.log('Print success');
       cb(null, { success: true });
@@ -103,7 +105,22 @@ async function create_transaction(request, response) {
   try {
     console.log("create_transaction", JSON.stringify(request.body, null, 2));
 
+    // check if invoice_id is exist in open_bill
+    const open_bill = await sdk.db.open_bill.findOne({ invoice_id: request.body.invoice_id });
+    let is_open_bill = false;
+
     await sdk.db.transaction.create(request.body);
+
+    if (open_bill) {
+      is_open_bill = true;
+      // delete from open_bill
+      await sdk.db.open_bill.deleteOne({ invoice_id: request.body.invoice_id });
+      // update table
+      await sdk.db.table.updateOne(
+        { "tables.reference_id": request.body.invoice_id },
+        { $set: { "tables.$.is_occupied": false, "tables.$.reference_id": null } }
+      );
+    }
 
     const outlet = await sdk.db.outlet.findOne({});
     
@@ -137,6 +154,7 @@ async function create_transaction(request, response) {
       cashier_queue.push({
         data: {
           ...request.body,
+          is_open_bill,
           logo: '../../assets/outlet-logo.png',
           footers: outletObj.config.footer_content,
         },
@@ -160,8 +178,10 @@ async function create_transaction(request, response) {
   }
 }
 
-async function print_receipt(printer, data) {
+async function print_receipt(printer, data, is_open_bill) {
   try {
+    console.log("print_receipt", JSON.stringify(data, null, 2));
+    
     // Print receipt
     printer.clear();
     // Header
@@ -203,20 +223,46 @@ async function print_receipt(printer, data) {
     
     // Items
     data.transaction_items.forEach((item, item_index) => {
-      printer.tableCustom([
-        { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
-        { text: (+item.option.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-      ]);
-      
-      // Addons
-      item.addon.forEach(addon => {
-        addon.list.forEach(opt => {
-          printer.tableCustom([
-            { text: `    ${addon.name} - ${opt.name}`, align: 'LEFT', width: 0.6 },
-            { text: (+opt.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-          ]);
+      if (+item.option.pricing.discount) {
+        console.log("kesini kan, karena ada discount");
+        
+        printer.tableCustom([
+          { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
+          { text: (+item.option.pricing.final_price_per_item).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+        ]);
+        
+        // Addons
+        item.addon.forEach(addon => {
+          addon.list.forEach(opt => {
+            printer.tableCustom([
+              { text: `    ${addon.name} - ${opt.name}`, align: 'LEFT', width: 0.6 },
+              { text: (+opt.pricing.final_price_per_item).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+            ]);
+          });
         });
-      });
+
+        printer.tableCustom([
+          { text: `* ${item.option.pricing.discount_name}`, align: 'LEFT', width: 0.6 },
+          { text: "", align: 'RIGHT', width: 0.4 }
+        ]);
+      } else {
+        console.log("kesini kan, karena tidak ada discount", item);
+        
+        printer.tableCustom([
+          { text: `${item.qty} x ${item.name}`, align: 'LEFT', width: 0.6 },
+          { text: (+item.option.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+        ]);
+        
+        // Addons
+        item.addon.forEach(addon => {
+          addon.list.forEach(opt => {
+            printer.tableCustom([
+              { text: `    ${addon.name} - ${opt.name}`, align: 'LEFT', width: 0.6 },
+              { text: (+opt.pricing.price).toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+            ]);
+          });
+        });
+      }
 
       if (item_index < data.transaction_items.length - 1) {
         printer.newLine();
@@ -231,8 +277,22 @@ async function print_receipt(printer, data) {
     
     printer.tableCustom([
       { text: 'Subtotal:', align: 'LEFT', width: 0.6 },
-      { text: data.subtotal.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+      { text: data.subtotal_without_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
     ]);
+    
+    if (data.total_product_discount) {
+      printer.tableCustom([
+        { text: 'Product Discount:', align: 'LEFT', width: 0.6 },
+        { text: data.total_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+      ]);
+    }
+    
+    if (data.total_voucher_discount) {
+      printer.tableCustom([
+        { text: 'Voucher Discount:', align: 'LEFT', width: 0.6 },
+        { text: data.total_voucher_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+      ]);
+    }
     
     printer.tableCustom([
       { text: 'Total:', align: 'LEFT', width: 0.6 },
@@ -262,7 +322,9 @@ async function print_receipt(printer, data) {
     await printer.openCashDrawer();
     await printer.execute();
 
-    print_stations(data);
+    if (!is_open_bill) {
+      print_stations(data);
+    }
     
     return true;
   } catch (error) {
@@ -410,36 +472,47 @@ async function get_order_number(request, response) {
 
 async function get_history_transaction(request, response) {
   try {
-    // Get today's start and end dates in local timezone
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const shift_running = await sdk.db.shift_running.findOne({}).lean();
+    
+    if (!shift_running) {
+      return response.status(404).json({
+        message: "No active shift found",
+        result: []
+      });
+    }
 
-    // Log the query parameters for debugging
-    console.log("Query date range:", {
-      start: today.toISOString(),
-      end: tomorrow.toISOString()
-    });
+    // Check if shift_running date is in the future
+    const currentDate = new Date();
+    if (shift_running.createdAt > currentDate) {
+      return response.status(400).json({
+        message: "Invalid shift: start time is in the future",
+        shift_date: shift_running.createdAt,
+        result: []
+      });
+    }
 
+    // Convert the date string to Date object if it isn't already
+    const shiftStartDate = new Date(shift_running.createdAt);
+
+    // Try the query with ISOString
     const transactions = await sdk.db.transaction.find({
       created_at: {
-        $gte: today.toISOString(),
-        $lt: tomorrow.toISOString()
+        $gte: shiftStartDate.toISOString()
       }
-    });
-
-    console.log("Transactions:", transactions);
+    })
+    .sort({ created_at: -1 })
+    .lean();
 
     return response.status(200).json({
-      message : "Success get_history_transaction",
-      result  : transactions,
+      message: "Success get_history_transaction",
+      result: transactions
     });
   } catch (error) {
-    console.log(error);
+    console.error("Error in get_history_transaction:", error);
     return response.status(500).json({
-      message : "Error get_history_transaction",
-      error   : error.message
+      message: "Error fetching transaction history",
+      error: error.message,
+      result: []
     });
   }
 }

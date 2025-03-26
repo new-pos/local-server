@@ -72,8 +72,34 @@ async function set_list_cashier(request, response) {
   }
 }
 
+async function get_cashier_by_id(request, response) {
+  try {
+    const { uid } = request.query;
+    const cashier = await sdk.db.cashier.findOne({ cashier_id: +uid });
+
+    if (!cashier) {
+      return response.status(404).json({
+        message: "Cashier not found",
+      });
+    }
+
+    return response.status(200).json({
+      message: "Success get_cashier_by_id",
+      result: cashier,
+    });
+  } catch (error) {
+    console.log("Error get_cashier_by_id", error);
+
+    return response.status(500).json({
+      message: "Error get_cashier_by_id",
+      error,
+    });
+  }
+}
+
 module.exports = {
   get_list_cashier,
   set_list_cashier,
   sign_in,
+  get_cashier_by_id,
 };
