@@ -1,6 +1,7 @@
 {
   "port": 4002,
   "mode": "development",
+  "backend_url": "http://localhost:4001",
   "session": {
     "key"    : "",
     "expired": "1d"

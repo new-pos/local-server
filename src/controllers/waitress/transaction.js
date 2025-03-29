@@ -143,7 +143,6 @@ async function create_transaction(request, response) {
     });
 
     console.log("sampe sini kah?");
-    
 
     await sdk.db.open_bill.create({
       ...request.body,

@@ -101,10 +101,10 @@ async function set_outlet_table(request, response) {
     });
     const list_occupied_tables = [];
     
-    for (let table of tables) {
-      table = table.toObject();
+    for (let table_group of tables) {
+      table_group = table_group.toObject();
 
-      table.tables.forEach((item) => {
+      table_group.tables.forEach((item) => {
         if (item.is_occupied) {
           list_occupied_tables.push(item.id);
         }
@@ -117,7 +117,8 @@ async function set_outlet_table(request, response) {
         ...table,
         is_occupied: list_occupied_tables.includes(table.id) ? true : false,
         reference_id: null,
-      }))
+        running_orders: [],
+      })),
     }));
 
     await sdk.db.table.deleteMany();
