@@ -149,21 +149,7 @@ async function create_transaction(request, response) {
 
     console.log("Resized image saved to:", imagePath);
 
-    // Add print job to queue
-    await new Promise((resolve, reject) => {
-      cashier_queue.push({
-        data: {
-          ...request.body,
-          is_open_bill,
-          logo: '../../assets/outlet-logo.png',
-          footers: outletObj.config.footer_content,
-        },
-        printer_interface: outletObj.config.printer,
-      }, (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
-      });
-    });
+    execute_printer(request.body, is_open_bill, outletObj.config.printer, outletObj.config.footer_content)
 
     return response.status(200).json({
       message: "Success create_transaction",
@@ -175,6 +161,32 @@ async function create_transaction(request, response) {
       message: "Error printing",
       error: error.message
     });
+  }
+}
+
+async function execute_printer(body, is_open_bill, printer, footer) {
+  try {
+    // Add print job to queue
+    await new Promise((resolve, reject) => {
+      cashier_queue.push({
+        data: {
+          ...body,
+          is_open_bill,
+          logo: '../../assets/outlet-logo.png',
+          footers: footer,
+        },
+        printer_interface: printer,
+      }, (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
+    });
+
+    return true;
+  } catch (error) {
+    console.log("Error add print job to queue", error);
+
+    return false;
   }
 }
 
