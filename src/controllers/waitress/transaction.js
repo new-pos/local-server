@@ -99,6 +99,94 @@ const station_queue = new Queue(async function (task, cb) {
   }
 });
 
+const void_queue = new Queue(async function (task, cb) {
+  let retries = 0;
+  const maxRetries = 10000;
+  const retryDelay = 5000;
+
+  console.log("void_queue");
+
+  while (retries < maxRetries) {
+    try {
+      const printer = new ThermalPrinter({
+        type                    : PrinterTypes.EPSON,
+        interface               : task.printer_interface,
+        options                 : { timeout: 1000 },
+        width                   : 46,
+        removeSpecialCharacters : false,
+        lineCharacter           : "-",
+        encoding                : "UTF8"
+      });
+
+      // Try to print any failed tasks first
+      while (failedTasks.length > 0) {
+        const failedTask = failedTasks.shift();
+        await print_void_item(printer, failedTask.data);
+      }
+
+      // Print current task
+      await print_void_item(printer, task.data);
+
+      console.log('Print success');
+      cb(null, { success: true });
+      return;
+    } catch (error) {
+      retries++;
+      console.log(`Print attempt ${retries} failed:`, error);
+      if (retries < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        // Store failed task for later retry
+        failedTasks.push(task);
+        cb(error);
+      }
+    }
+  }
+});
+
+async function print_void_item(printer, data) {
+  try {
+    console.log("udah sampe sini?", printer);
+    
+    // Print receipt
+    printer.clear();
+    // Header
+    printer.alignCenter();
+    printer.bold(true);
+    printer.println("Void Item");
+    printer.bold(false);
+    printer.alignLeft();
+    printer.drawLine();
+    printer.println(`Invoice    : ${data.invoice_id}`);
+    printer.println(`Order No   : ${data.order_number}`);
+    printer.drawLine();
+
+    console.log("data.transaction_items", JSON.stringify(data.transaction_items, null, 2));
+    
+
+    for (const item of data.transaction_items) {
+      printer.println(`${item.name}`);
+
+      // Addons
+      item.addon.forEach(addon => {
+        addon.list.forEach(opt => {
+          if (opt.selected) {
+            printer.println(`    ${addon.name} - ${opt.name}`);
+          }
+        });
+      });
+    }
+
+    printer.cut();
+    await printer.execute();
+    
+    return true;
+  } catch (error) {
+    console.log("Error print_station", error);
+    return false;
+  }
+}
+
 async function create_transaction(request, response) {
   try {
     console.log("create_transaction", JSON.stringify(request.body, null, 2));
@@ -130,6 +218,26 @@ async function create_transaction(request, response) {
       }
     });
 
+    request.body.original_cart = request.body
+      .original_cart.filter(item => !item.is_existing_item && !item.is_voided);
+      
+    request.body.original_cart = request.body
+      .original_cart.map(item => {
+      item.is_existing_item = true;
+
+        return item;
+      });
+
+    request.body.transaction_items = request.body
+      .transaction_items.filter(item => !item.is_existing_item && !item.is_voided);
+      
+    request.body.transaction_items = request.body
+      .transaction_items.map(item => {
+      item.is_existing_item = true;
+
+        return item;
+      });
+
     const todayCount = open_bill_count + transaction_count;
 
     console.log("Today's transaction count:", todayCount);
@@ -144,14 +252,42 @@ async function create_transaction(request, response) {
 
     console.log("sampe sini kah?");
 
-    await sdk.db.open_bill.create({
-      ...request.body,
-      order_number: formatted_number,
-      created_by: "waitress",
-      status: "accepted",
+    const existing_order = await sdk.db.open_bill.findOne({
+      invoice_id: request.body.invoice_id,
     });
 
-    const outlet = await sdk.db.outlet.findOne({});
+    if (existing_order) {
+      await sdk.db.open_bill.updateOne(
+        {
+          invoice_id: request.body.invoice_id
+        },
+        { $set: { ...request.body } },
+      );
+    } else {
+      await sdk.db.open_bill.create({
+        ...request.body,
+        order_number: formatted_number,
+        created_by: "waitress",
+        status: "accepted",
+      });
+    }
+    
+    let target_table = await sdk.db.table.findOne({ "tables.id": request.body.table_id });
+
+    target_table = target_table.toObject();
+
+    const [_target] = target_table.tables.filter(_table => _table.id === request.body.table_id);
+
+    console.log("_target 1", _target);
+    console.log("_target 2", );
+
+    _target.running_orders.push({
+      ...request.body,
+      order_index  : _target.running_orders.length + 1,
+      order_number : formatted_number,
+      created_by   : "waitress",
+      status       : "accepted",
+    })
 
     await sdk.db.table.updateOne(
       {
@@ -159,11 +295,145 @@ async function create_transaction(request, response) {
       },
       {
         $set: {
-          "tables.$.reference_id": request.body.invoice_id,
-          "tables.$.is_occupied": true
+          "tables.$.reference_id"  : request.body.invoice_id,
+          "tables.$.is_occupied"   : true,
+          "tables.$.running_orders": _target.running_orders,
         }
       }
     );
+    // If outlet is a Mongoose document, try accessing the raw object
+    const outletObj = request.body.outlet;
+    console.log("Outlet as plain object image:", outletObj);
+
+    // Download image
+    const outlet_image = await axios.get(outletObj.image, { responseType: 'arraybuffer' });
+    const imagePath = path.join(__dirname, '../../assets/outlet-logo.png');
+    
+    // Ensure assets directory exists
+    const assetsDir = path.dirname(imagePath);
+    if (!fs.existsSync(assetsDir)) {
+      fs.mkdirSync(assetsDir, { recursive: true });
+    }
+    
+    // Resize image and save
+    await sharp(outlet_image.data)
+      .resize(200, 200, {  // Adjust width and height as needed
+        fit: 'contain',     // Other options: 'cover', 'fill', 'inside', 'outside'
+        background: { r: 255, g: 255, b: 255, alpha: 0 }  // White background
+      })
+      .png()  // Convert to PNG format
+      .toFile(imagePath);
+
+    console.log("Resized image saved to:", imagePath);
+
+    execute_printer(request.body, outletObj.config.printer, outletObj.config.footer_content)
+
+    return response.status(200).json({
+      message: "Success create_transaction",
+      result: null,
+    });
+  } catch (error) {
+    console.log("Error create_transaction", error);
+    return response.status(500).json({
+      message: "Error printing",
+      error: error.message
+    });
+  }
+}
+
+async function void_table_item(request, response) {
+  try {
+    let [cashier] = await sdk.db.cashier.find({
+      $or: [{ cashier_id: request.body.user }],
+    });
+    
+    cashier = cashier.toObject();
+    const target_item = [];
+
+    console.log("cashier", cashier);
+    if (String(cashier.pin) !== String(request.body.pin)) {
+      return response.status(401).json({
+        message: "Invalid credentials",
+        error: "Invalid credentials"
+      });
+    }
+
+    if (!cashier) {
+      return response.status(401).json({
+        message: "Invalid credentials",
+        error: "Invalid credentials"
+      });
+    }
+
+    let target_table = await sdk.db.table.findOne({ "tables.id": request.body.table_id });
+
+    target_table = target_table.toObject();
+
+    console.log("target_table", target_table);
+
+    const [_target] = target_table.tables.filter(_table => _table.id === request.body.table_id);
+
+    console.log("_target", _target);
+    
+    const order_items = _target.running_orders.map(order => {
+      if (order.order_index == request.body.order_index) {
+        order.original_cart.map((item, index) => {
+          console.log("ada 0", index, request.body.void_item_target);
+
+          if (index == request.body.void_item_target) {
+            console.log("ada 1");
+            
+            item.is_existing_item = true;
+            item.is_voided = true;
+            item.voided_reason = request.body.reason;
+            item.voided_by = request.body.user;
+            item.voided_at = new Date();
+
+            target_item.push(item);
+          }
+
+          return item;
+        });
+        
+        order.transaction_items.map((item, index) => {
+          console.log("ada 0", index, request.body.void_item_target);
+
+          if (index == request.body.void_item_target) {
+            console.log("ada 1");
+            
+            item.is_existing_item = true;
+            item.is_voided = true;
+            item.voided_reason = request.body.reason;
+            item.voided_by = request.body.user;
+            item.voided_at = new Date();
+          }
+
+          return item;
+        });
+      }
+
+      return order;
+    });
+
+    await sdk.db.table.updateOne(
+      {
+        "tables.id": request.body.table_id
+      },
+      {
+        $set: {
+          "tables.$.running_orders": order_items,
+        }
+      }
+    );
+
+    // console.log("kesini?", request.body.table_id, JSON.stringify(order_items, null, 2));
+    let table = await sdk.db.table.findOne({ "tables.id": request.body.table_id });
+
+    table = table.toObject();
+
+    let [_table] = table.tables.filter(table => table.id === request.body.table_id);
+
+    const outlet = await sdk.db.outlet.findOne({});
     
     // If outlet is a Mongoose document, try accessing the raw object
     const outletObj = outlet.toObject ? outlet.toObject() : outlet;
@@ -192,10 +462,11 @@ async function create_transaction(request, response) {
 
     // Add print job to queue
     await new Promise((resolve, reject) => {
-      cashier_queue.push({
+      void_queue.push({
         data: {
-          ...request.body,
-          is_open_bill: true,
+          invoice_id: request.body.invoice_id,
+          order_number: request.body.order_number,
+          transaction_items: target_item,
           logo: '../../assets/outlet-logo.png',
           footers: outletObj.config.footer_content,
         },
@@ -206,18 +477,36 @@ async function create_transaction(request, response) {
       });
     });
 
-    // print_stations(request.body);
-
-    return response.status(200).json({
-      message: "Success create_transaction",
-      result: null,
-    });
+    return response.json(_table);
   } catch (error) {
-    console.log("Error create_transaction", error);
-    return response.status(500).json({
-      message: "Error printing",
-      error: error.message
+    console.log("[void_table_item].error", error);
+  }
+}
+
+async function execute_printer(body, printer, footer) {
+  try {
+    // Add print job to queue
+    await new Promise((resolve, reject) => {
+      cashier_queue.push({
+        data: {
+          ...body,
+          is_open_bill: true,
+          logo: '../../assets/outlet-logo.png',
+          footers: footer,
+        },
+        printer_interface: printer,
+      }, (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
     });
+
+    print_stations(body);
+
+    return true;
+  } catch (error) {
+    console.log("Error execute_printer", error);
+    return false;
   }
 }
 
@@ -550,6 +839,32 @@ async function get_history_transaction(request, response) {
 
 async function update_transaction(request, response) {
   try {
+    console.log("update_transaction", JSON.stringify(request.body.invoice_id, null, 2));
+
+    const transaction = await sdk.db.open_bill.findOne({ invoice_id: request.body.invoice_id });
+
+    console.log("transaction", transaction);
+
+    await sdk.db.open_bill.updateOne(
+      { invoice_id: request.body.invoice_id },
+      {
+        $set: {
+          "notes" : request.body.notes,
+          "subtotal" : request.body.subtotal,
+          "total_discount" : request.body.total_discount,
+          "special_discount" : request.body.special_discount,
+          "total_charges" : request.body.total_charges,
+          "grand_total" : request.body.grand_total,
+          "subtotal_without_product_discount" : request.body.subtotal_without_product_discount,
+          "unpaid_amount" : request.body.unpaid_amount,
+          "transaction_items" : request.body.transaction_items,
+          "original_cart" : request.body.original_cart,
+          "total_items" : request.body.total_items,
+          "updatedAt" : new Date(),
+        }
+      }
+    );
+
     return response.send("success > update_transaction");
   } catch (error) {
     console.log("[update_transaction].error", error);
@@ -634,4 +949,5 @@ module.exports = {
   waitress_notification,
   get_order_number,
   get_history_transaction,
+  void_table_item,
 };

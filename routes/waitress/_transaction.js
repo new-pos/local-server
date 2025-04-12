@@ -11,5 +11,6 @@ router.get("/order-number"    , fn.get_order_number);
 router.post("/create"         , fn.create_transaction);
 router.post("/update"         , fn.update_transaction);
 router.post("/transfer-table" , fn.transfer_table);
+router.post("/void-table-item", fn.void_table_item);
 
 module.exports = router;

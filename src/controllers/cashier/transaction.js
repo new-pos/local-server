@@ -118,7 +118,7 @@ async function create_transaction(request, response) {
       // update table
       await sdk.db.table.updateOne(
         { "tables.reference_id": request.body.invoice_id },
-        { $set: { "tables.$.is_occupied": false, "tables.$.reference_id": null } }
+        { $set: { "tables.$.is_occupied": false, "tables.$.reference_id": null, "tables.$.running_orders": [] } }
       );
     }
 

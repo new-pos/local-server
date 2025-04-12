@@ -100,6 +100,7 @@ async function set_outlet_table(request, response) {
       "tables.is_occupied": true  // Only get stations where printer field is not null
     });
     const list_occupied_tables = [];
+    const list_occupied_order  = {};
     
     for (let table_group of tables) {
       table_group = table_group.toObject();
@@ -107,6 +108,7 @@ async function set_outlet_table(request, response) {
       table_group.tables.forEach((item) => {
         if (item.is_occupied) {
           list_occupied_tables.push(item.id);
+          list_occupied_order[item.id] = item;
         }
       });
     }
@@ -116,8 +118,8 @@ async function set_outlet_table(request, response) {
       tables: item.tables.map((table) => ({
         ...table,
         is_occupied: list_occupied_tables.includes(table.id) ? true : false,
-        reference_id: null,
-        running_orders: [],
+        reference_id: list_occupied_tables.includes(table.id) ? list_occupied_order[table.id].reference_id : null,
+        running_orders: list_occupied_tables.includes(table.id) ? list_occupied_order[table.id].running_orders : [],
       })),
     }));
 

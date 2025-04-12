@@ -1018,7 +1018,15 @@ async function list_product(request, response) {
 
 async function outlet_info(request, response) {
   try {
-    const [outlet] = await sdk.db.outlet.find();
+    let [outlet] = await sdk.db.outlet.find();
+
+    outlet = outlet.toObject();
+
+    let stations = await sdk.db.station.find();
+
+    stations = stations.map(doc => doc.toObject());
+
+    outlet.stations = stations;
 
     return response.json({
       status: outlet ? true : false,
