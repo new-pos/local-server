@@ -42,7 +42,7 @@ async function print_qr_code(request, response) {
     });
 
     printer.alignCenter();
-    printer.printQR(`http://192.168.1.3:6002/${request.body.outlet_id}/${request.body.table_id}`, {
+    printer.printQR(`http://192.168.50.63:6002/${request.body.outlet_id}/${request.body.table_id}`, {
       cellSize: 8,             // 1 - 8
       correction: 'H',         // L(7%), M(15%), Q(25%), H(30%)
       model: 2
@@ -163,7 +163,7 @@ async function save_open_bill(request, response) {
   });
 }
 
-async function save_and_print_open_bill (request, response) {
+async function save_and_print_open_bill(request, response) {
   try {
     // let target_table = await sdk.db.table.findOne({ "tables.id": request.body.table_id });
 
@@ -578,6 +578,9 @@ async function print_receipt(printer, data) {
     printer.println(`Type       : ${data.sales_type_name}`);
     
     printer.drawLine();
+
+    console.log("data.transaction_items", data.transaction_items);
+    
     
     // Items
     data.transaction_items.forEach((item, item_index) => {

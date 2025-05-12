@@ -2,6 +2,27 @@
 
 const sdk = require("../../libraries");
 
+async function get_list_account(request, response) {
+  try {
+    console.log("get_list_account");
+    
+    const cashier = await sdk.db.cashier.find({});
+
+    return response.json({
+      status  : true,
+      message : "Success get_list_account",
+      result  : cashier,
+    });
+  } catch (error) {
+    console.log("[get_list_account].error", error);
+
+    return response.json({
+      status  : false,
+      message : error.message,
+    });
+  }
+}
+
 async function sign_in(request, response) {
   try {
     console.log("???");
@@ -61,4 +82,5 @@ module.exports = {
   sign_in,
   user_info,
   get_list_user,
+  get_list_account,
 };

@@ -377,39 +377,8 @@ async function void_table_item(request, response) {
     
     const order_items = _target.running_orders.map(order => {
       if (order.order_index == request.body.order_index) {
-        order.original_cart.map((item, index) => {
-          console.log("ada 0", index, request.body.void_item_target);
-
-          if (index == request.body.void_item_target) {
-            console.log("ada 1");
-            
-            item.is_existing_item = true;
-            item.is_voided = true;
-            item.voided_reason = request.body.reason;
-            item.voided_by = request.body.user;
-            item.voided_at = new Date();
-
-            target_item.push(item);
-          }
-
-          return item;
-        });
-        
-        order.transaction_items.map((item, index) => {
-          console.log("ada 0", index, request.body.void_item_target);
-
-          if (index == request.body.void_item_target) {
-            console.log("ada 1");
-            
-            item.is_existing_item = true;
-            item.is_voided = true;
-            item.voided_reason = request.body.reason;
-            item.voided_by = request.body.user;
-            item.voided_at = new Date();
-          }
-
-          return item;
-        });
+        order.original_cart     = request.body.final_cart;
+        order.transaction_items = request.body.final_cart;
       }
 
       return order;
@@ -518,18 +487,18 @@ async function print_receipt(printer, data) {
     printer.clear();
     // Header
     printer.alignCenter();
-    await printer.printImage(path.join(__dirname, data.logo), { align: 'center' });
-    printer.println();
+    // await printer.printImage(path.join(__dirname, data.logo), { align: 'center' });
+    // printer.println();
     
-    printer.bold(true);
-    printer.println(data.store_name);
-    printer.bold(false);
-    printer.println();
+    // printer.bold(true);
+    // printer.println(data.store_name);
+    // printer.bold(false);
+    // printer.println();
     
-    printer.println(data.outlet_address);
+    // printer.println(data.outlet_address);
     
-    printer.println('Phone: ' + data.outlet_phone);
-    printer.drawLine();
+    // printer.println('Phone: ' + data.outlet_phone);
+    // printer.drawLine();
     
     // Order details
     printer.alignLeft();
@@ -549,7 +518,7 @@ async function print_receipt(printer, data) {
     }
     
     printer.println(`Type       : ${data.sales_type_name}`);
-    printer.println(`Cashier    : ${data.cashier_name}`);
+    // printer.println(`Cashier    : ${data.cashier_name}`);
     
     printer.drawLine();
     
@@ -607,40 +576,40 @@ async function print_receipt(printer, data) {
     printer.println(`Total Items: ${data?.total_items || 0}`);
     printer.drawLine();
     
-    printer.tableCustom([
-      { text: 'Subtotal:', align: 'LEFT', width: 0.6 },
-      { text: data.subtotal_without_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-    ]);
+    // printer.tableCustom([
+    //   { text: 'Subtotal:', align: 'LEFT', width: 0.6 },
+    //   { text: data.subtotal_without_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+    // ]);
     
-    if (data.total_product_discount) {
-      printer.tableCustom([
-        { text: 'Product Discount:', align: 'LEFT', width: 0.6 },
-        { text: data.total_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-      ]);
-    }
+    // if (data.total_product_discount) {
+    //   printer.tableCustom([
+    //     { text: 'Product Discount:', align: 'LEFT', width: 0.6 },
+    //     { text: data.total_product_discount.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+    //   ]);
+    // }
     
-    printer.tableCustom([
-      { text: 'Total:', align: 'LEFT', width: 0.6 },
-      { text: data.grand_total.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
-    ]);
+    // printer.tableCustom([
+    //   { text: 'Total:', align: 'LEFT', width: 0.6 },
+    //   { text: data.grand_total.toLocaleString().replace(/,/g, "."), align: 'RIGHT', width: 0.4 }
+    // ]);
     
-    printer.drawLine();
+    // printer.drawLine();
     
-    for (const payment of data.payment_method) {
-      printer.tableCustom([
-        { text: payment.name, align: 'LEFT', width: 0.6 },
-        { text: `IDR ${payment.amount.toLocaleString().replace(/,/g, ".")}`, align: 'RIGHT', width: 0.4 }
-      ]);
-    }
+    // for (const payment of data.payment_method) {
+    //   printer.tableCustom([
+    //     { text: payment.name, align: 'LEFT', width: 0.6 },
+    //     { text: `IDR ${payment.amount.toLocaleString().replace(/,/g, ".")}`, align: 'RIGHT', width: 0.4 }
+    //   ]);
+    // }
 
-    printer.newLine();
+    // printer.newLine();
 
-    // Footer
-    printer.alignCenter();
+    // // Footer
+    // printer.alignCenter();
 
-    for (const footer_text of data.footers) {
-      printer.println(footer_text);
-    }
+    // for (const footer_text of data.footers) {
+    //   printer.println(footer_text);
+    // }
     
     printer.cut();
 
